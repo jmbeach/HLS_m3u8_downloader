@@ -2,7 +2,7 @@
 
 """
 @author: djstava
-@license: MIT Licence 
+@license: MIT Licence
 @contact: djstava@gmail.com
 @site: http://www.xugaoxiang.com
 @software: PyCharm
@@ -21,8 +21,15 @@ import posixpath
 import urllib.parse
 import re
 import time
+import sys
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+
+with open("./cookie.txt") as f:
+	cookie = f.read()
+headers = {
+	'cookie': cookie
+}
 
 def is_url(uri):
 	return re.match(r'https?://', uri) is not None
@@ -49,15 +56,15 @@ class SegmentDownloadThread(threading.Thread):
 		else:
 			url = item[2]
 			item[2] = os.path.basename(urllib.parse.urlparse(url).path)
-			
+
 		if item[3]:
 			backend = default_backend()
-			r = requests.get(item[3].uri)
+			r = requests.get(item[3].uri, headers=headers)
 			key = r.content
 			cipher = Cipher(algorithms.AES(key), modes.CBC(bytes.fromhex(item[3].iv[2:])), backend=backend)
 			decryptor = cipher.decryptor()
 			
-		r = requests.get(url, stream=True)
+		r = requests.get(url, stream=True, headers=headers)
 		with open(os.path.join(self.location, item[2]), 'wb') as f:
 			for chunk in r.iter_content(chunk_size=1024):
 				if chunk:
@@ -75,7 +82,7 @@ def concatenate_files(filelist, source, destination, name):
 	outfile.close()
 
 def m3u8_load(uri):
-	r = requests.get(uri)
+	r = requests.get(uri, headers=headers)
 	m3u8_obj = m3u8.M3U8(r.text)
 	return m3u8_obj
 
@@ -85,7 +92,7 @@ def hls_fetch(playlist_location, storage_location, name):
 	while True:
 		download_queue = queue.Queue()
 		tsSliceList = list()
-		
+
 		with tempfile.TemporaryDirectory() as download_location:
 			playlist = m3u8_load(playlist_location)
 			parsed_url = urllib.parse.urlparse(playlist_location)
@@ -94,42 +101,51 @@ def hls_fetch(playlist_location, storage_location, name):
 			base_uri = urllib.parse.urljoin(prefix, base_path)
 			pool = list()
 			total = 0
-			
+
 			for number, file in enumerate(playlist.segments):
 				if not is_url(file.uri):
 					playlist.base_uri = base_uri
-				
+
 				if file.uri not in oldSegmentList:
 					total += 1
-					print('Downing, ',file.uri)
+					print('Downloading, ', file.uri)
 					oldSegmentList.append(file.uri)
-					tsSliceList.append(file.uri)
+					tsSliceList.append(re.findall(r"(?<=\/)\w+\.ts", file.uri)[0])
 					download_queue.put([number, playlist.base_uri, file.uri, file.key])
-					
+
 			if total == 0:
 				time.sleep(3)
 				continue
-			
+
 			for i in range(total):
 				thread = SegmentDownloadThread(download_queue, download_location, total)
 				thread.daemon = True
 				thread.start()
 				pool.append(thread)
 			download_queue.join()
-			
+
 			for i in range(total):
 				download_queue.put(None)
-			
+
 			for thread in pool:
 				thread.join()
-				
+
 			concatenate_files(tsSliceList, download_location, storage_location, name)
 			tsSliceList.clear()
+			exit(0)
 
 if __name__ == "__main__":
-	
 	cwd = os.getcwd()
-	testUrl = "http://10.0.0.188:8081/live/live27/index.m3u8"
+	if len(sys.argv) < 2:
+		print('A url to the m3u8 file is expected.\n\tExample: python3 hls_m3u8_downloader.py <my-url>')
+		exit(1)
+	testUrl = sys.argv[1]
 	localFile = "video.ts"
+	if len(sys.argv) > 2:
+		localFile = sys.argv[2]
+
+	if os.path.exists(localFile):
+		print('The file "' + localFile + '" already exists.');
+		exit(1);
 	
-	hls_fetch(testUrl, cwd,localFile)
+	hls_fetch(testUrl, cwd, localFile)
