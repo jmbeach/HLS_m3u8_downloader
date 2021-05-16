@@ -110,7 +110,7 @@ def hls_fetch(playlist_location, storage_location, name):
 					total += 1
 					print('Downloading, ', file.uri)
 					oldSegmentList.append(file.uri)
-					tsSliceList.append(re.findall(r"(?<=\/)\w+\.ts", file.uri)[0])
+					tsSliceList.append(re.findall(r"(?<=\/)[\w-]+\.(?:ts|aac)", file.uri)[0])
 					download_queue.put([number, playlist.base_uri, file.uri, file.key])
 
 			if total == 0:
